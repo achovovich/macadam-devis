@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { pricingSections, markupRate } from './pricingConfig'
+import { addCommentToCard } from './trelloClient'
 
 type QuantityState = Record<string, number>
 
@@ -21,6 +22,8 @@ const clampToInt = (value: number) => Math.max(0, Math.round(value))
 function App() {
   const [quantities, setQuantities] = useState<QuantityState>(buildInitialQuantities)
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
+  const [trelloStatus, setTrelloStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [trelloError, setTrelloError] = useState<string | null>(null)
   const trelloCardId = useMemo(
     () => new URLSearchParams(window.location.search).get('trelloId'),
     [],
@@ -64,19 +67,64 @@ function App() {
 
   const totalWithMarkup = Math.round((subtotal * (1 + markupRate) + Number.EPSILON) * 100) / 100
 
+  const selectedLines = useMemo(
+    () =>
+      pricingSections.flatMap((section) =>
+        section.items
+          .filter((item) => (quantities[item.id] ?? 0) > 0)
+          .map((item) => ({
+            section: section.title,
+            label: item.label,
+            quantity: quantities[item.id] ?? 0,
+            lineTotal: item.price * (quantities[item.id] ?? 0),
+          })),
+      ),
+    [quantities],
+  )
+
+  const handleSendToTrello = async () => {
+    if (!trelloCardId) return
+    if (selectedLines.length === 0) {
+      setTrelloError('Aucune option sélectionnée.')
+      setTrelloStatus('error')
+      return
+    }
+    setTrelloStatus('loading')
+    setTrelloError(null)
+    const linesText = selectedLines
+      .map(
+        (line) =>
+          `- ${line.label} (${line.section}) x${line.quantity}: ${formatEuro(line.lineTotal)}`,
+      )
+      .join('\n')
+
+    const comment = [
+      'Devis rapide',
+      `Total: ${formatEuro(subtotal)}`,
+      `Total + ${Math.round(markupRate * 100)}%: ${formatEuro(totalWithMarkup)}`,
+      '',
+      'Détail :',
+      linesText,
+    ].join('\n')
+
+    try {
+      await addCommentToCard(trelloCardId, comment)
+      setTrelloStatus('success')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue'
+      setTrelloError(message)
+      setTrelloStatus('error')
+    }
+  }
+
   return (
     <main className="page">
       <div className="page-header">
         <div>
-          <h1>Devis</h1>
+          <h1>
+            Devis {trelloCardId ? <span className="muted">({trelloCardId})</span> : null}
+          </h1>
         </div>
-        {trelloCardId && (
-          <div className="callout">
-            <strong>Carte Trello détectée :</strong> {trelloCardId}
-            <br />
-            L’envoi automatique du devis sera ajouté à l’étape suivante.
-          </div>
-        )}
       </div>
 
       <section className="summary">
@@ -88,6 +136,24 @@ function App() {
           <span>Tarif + {Math.round(markupRate * 100)}%</span>
           <strong>{formatEuro(totalWithMarkup)}</strong>
         </div>
+        {trelloCardId && (
+          <div className="summary-actions">
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={handleSendToTrello}
+              disabled={trelloStatus === 'loading'}
+            >
+              {trelloStatus === 'loading'
+                ? 'Envoi en cours...'
+                : trelloStatus === 'success'
+                  ? 'Envoyé à Trello'
+                  : 'Envoyer sur Trello'}
+            </button>
+            {trelloError && <p className="error">{trelloError}</p>}
+            {trelloStatus === 'success' && <p className="success">Commentaire ajouté ✅</p>}
+          </div>
+        )}
       </section>
 
       <div className="sections">

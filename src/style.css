@@ -57,6 +57,12 @@ h1 {
   letter-spacing: -0.03em;
 }
 
+.muted {
+  color: #64748b;
+  font-weight: 600;
+  font-size: 18px;
+}
+
 .lede {
   margin: 0;
   color: #475569;
@@ -96,6 +102,56 @@ h1 {
 
 .summary-row strong {
   font-size: 18px;
+}
+
+.summary-actions {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  justify-content: start;
+  height: 100%;
+}
+
+.primary-btn {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #026aa7;
+  background: #0079bf; /* Trello blue */
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 42px;
+  box-shadow: 0 12px 30px rgba(0, 121, 191, 0.25);
+  transition: transform 0.08s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  height: 100%;
+  width: 100%;
+  text-align: center;
+}
+
+.primary-btn:hover {
+  box-shadow: 0 12px 30px rgba(0, 121, 191, 0.35);
+}
+
+.primary-btn:active {
+  transform: translateY(1px);
+}
+
+.primary-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.error {
+  color: #b91c1c;
+  margin: 0;
+  font-weight: 600;
+}
+
+.success {
+  color: #15803d;
+  margin: 0;
+  font-weight: 600;
 }
 
 .sections {
