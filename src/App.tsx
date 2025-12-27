@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { pricingSections, markupRate } from './pricingConfig'
-import { addCommentToCard } from './trelloClient'
+import { addCommentToCard, createCard, updateCardDescription } from './trelloClient'
+import { trelloConfig } from './trelloConfig'
 
 type QuantityState = Record<string, number>
 
@@ -24,10 +25,22 @@ function App() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
   const [trelloStatus, setTrelloStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [trelloError, setTrelloError] = useState<string | null>(null)
-  const trelloCardId = useMemo(
+  const initialTrelloCardId = useMemo(
     () => new URLSearchParams(window.location.search).get('trelloId'),
     [],
   )
+  const [trelloCardId, setTrelloCardId] = useState<string | null>(initialTrelloCardId)
+  const [showNewClientModal, setShowNewClientModal] = useState(false)
+  const [newClientError, setNewClientError] = useState<string | null>(null)
+  const [createStatus, setCreateStatus] = useState<'idle' | 'loading'>('idle')
+  const [newClient, setNewClient] = useState({
+    title: '',
+    description: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    email: '',
+  })
 
   const handleToggle = (id: string) => {
     setQuantities((prev) => {
@@ -51,6 +64,13 @@ function App() {
 
   const toggleSection = (sectionId: string) => {
     setCollapsedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }))
+  }
+
+  const handleReset = () => {
+    setQuantities(buildInitialQuantities())
+    setCollapsedSections({})
+    setTrelloStatus('idle')
+    setTrelloError(null)
   }
 
   const subtotal = useMemo(
@@ -85,7 +105,7 @@ function App() {
   const handleSendToTrello = async () => {
     if (!trelloCardId) return
     if (selectedLines.length === 0) {
-      setTrelloError('Aucune option sélectionnée.')
+      setTrelloError('Aucune option selectionnee.')
       setTrelloStatus('error')
       return
     }
@@ -103,7 +123,7 @@ function App() {
       `Total: ${formatEuro(subtotal)}`,
       `Total + ${Math.round(markupRate * 100)}%: ${formatEuro(totalWithMarkup)}`,
       '',
-      'Détail :',
+      'Detail :',
       linesText,
     ].join('\n')
 
@@ -117,11 +137,68 @@ function App() {
     }
   }
 
+  const handleNewClientInput = (field: keyof typeof newClient, value: string) => {
+    setNewClient((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleCreateCard = async () => {
+    if (!newClient.title.trim()) {
+      setNewClientError('Le titre est obligatoire.')
+      return
+    }
+    setNewClientError(null)
+    setCreateStatus('loading')
+
+    const contactLines = [
+      `Nom: ${newClient.lastName || '-'}`,
+      `Prenom: ${newClient.firstName || '-'}`,
+      `Telephone: ${newClient.phone || '-'}`,
+      `Email: ${newClient.email || '-'}`,
+    ]
+
+    const desc = [newClient.description.trim(), '', 'Contact :', ...contactLines].join('\n')
+    const suffix = newClient.lastName.trim() ? ` - ${newClient.lastName.trim()}` : ''
+
+    try {
+      const card = await createCard({
+        name: `${newClient.title.trim()}${suffix}`,
+        desc,
+      })
+
+      const baseUrl = (trelloConfig as typeof trelloConfig & { formBaseUrl?: string }).formBaseUrl
+      if (baseUrl) {
+        const link = `${baseUrl}?trelloId=${encodeURIComponent(card.id)}`
+        const updatedDesc = `${desc}\n\nFormulaire: ${link}`
+        try {
+          await updateCardDescription(card.id, updatedDesc)
+        } catch {
+          // ignore description update failure
+        }
+      }
+
+      setTrelloCardId(card.id)
+      setShowNewClientModal(false)
+      setCreateStatus('idle')
+      setTrelloStatus('idle')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue'
+      setNewClientError(message)
+      setCreateStatus('idle')
+    }
+  }
+
   return (
     <main className="page">
       <div className="page-header">
         <div>
-          <h1>
+          <h1
+            role="button"
+            tabIndex={0}
+            onClick={() => window.location.reload()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') window.location.reload()
+            }}
+          >
             Devis {trelloCardId ? <span className="muted">({trelloCardId})</span> : null}
           </h1>
         </div>
@@ -147,13 +224,31 @@ function App() {
               {trelloStatus === 'loading'
                 ? 'Envoi en cours...'
                 : trelloStatus === 'success'
-                  ? 'Envoyé à Trello'
+                  ? 'Envoye a Trello'
                   : 'Envoyer sur Trello'}
             </button>
             {trelloError && <p className="error">{trelloError}</p>}
-            {trelloStatus === 'success' && <p className="success">Commentaire ajouté ✅</p>}
+            {trelloStatus === 'success' && <p className="success">Commentaire ajoute ✅</p>}
           </div>
         )}
+        {!trelloCardId && (
+          <div className="summary-actions">
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={() => setShowNewClientModal(true)}
+              disabled={createStatus === 'loading'}
+            >
+              {createStatus === 'loading' ? 'Creation en cours...' : 'Nouveau client'}
+            </button>
+            {newClientError && <p className="error">{newClientError}</p>}
+          </div>
+        )}
+        <div className="summary-actions">
+          <button type="button" className="secondary-btn" onClick={handleReset}>
+            Reset
+          </button>
+        </div>
       </section>
 
       <div className="sections">
@@ -175,7 +270,7 @@ function App() {
                 <div className="table-row table-head">
                   <div>Option</div>
                   <div>Tarif</div>
-                  <div>Qté</div>
+                  <div>Qte</div>
                   <div>Ligne</div>
                 </div>
                 {section.items.map((item) => {
@@ -215,7 +310,7 @@ function App() {
                             onChange={(event) =>
                               handleQuantityChange(item.id, Number(event.target.value))
                             }
-                            aria-label={`Quantité pour ${item.label}`}
+                            aria-label={`Quantite pour ${item.label}`}
                           />
                           <button
                             type="button"
@@ -227,9 +322,7 @@ function App() {
                           </button>
                         </div>
                       </div>
-                      <div className="line-total">
-                        {formatEuro(item.price * quantity)}
-                      </div>
+                      <div className="line-total">{formatEuro(item.price * quantity)}</div>
                     </div>
                   )
                 })}
@@ -238,6 +331,92 @@ function App() {
           </section>
         ))}
       </div>
+
+      {showNewClientModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal">
+            <header className="modal-header">
+              <h3>Nouveau client</h3>
+            </header>
+            <div className="modal-body">
+              <label className="field">
+                <span>Titre *</span>
+                <input
+                  type="text"
+                  value={newClient.title}
+                  onChange={(e) => handleNewClientInput('title', e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Description</span>
+                <textarea
+                  rows={3}
+                  value={newClient.description}
+                  onChange={(e) => handleNewClientInput('description', e.target.value)}
+                />
+              </label>
+              <div className="field-grid">
+                <label className="field">
+                  <span>Prenom</span>
+                  <input
+                    type="text"
+                    value={newClient.firstName}
+                    onChange={(e) => handleNewClientInput('firstName', e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Nom</span>
+                  <input
+                    type="text"
+                    value={newClient.lastName}
+                    onChange={(e) => handleNewClientInput('lastName', e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="field-grid">
+                <label className="field">
+                  <span>Telephone</span>
+                  <input
+                    type="tel"
+                    value={newClient.phone}
+                    onChange={(e) => handleNewClientInput('phone', e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={newClient.email}
+                    onChange={(e) => handleNewClientInput('email', e.target.value)}
+                  />
+                </label>
+              </div>
+              {newClientError && <p className="error">{newClientError}</p>}
+            </div>
+            <footer className="modal-footer">
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => {
+                  setShowNewClientModal(false)
+                  setNewClientError(null)
+                }}
+                disabled={createStatus === 'loading'}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={handleCreateCard}
+                disabled={createStatus === 'loading'}
+              >
+                {createStatus === 'loading' ? 'Ajout en cours...' : 'Ajouter dans Trello'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
